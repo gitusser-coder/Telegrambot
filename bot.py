@@ -20,7 +20,7 @@ TZ = ZoneInfo(os.environ.get("TZ", "Europe/Berlin"))
 # Gruppen: Namen -> Chat-IDs (negative ints). 0 = Platzhalter.
 GROUPS = json.loads(os.environ.get(
     "GROUPS_JSON",
-    '{"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'
+    '{"bot_testen":0,"Bigbangbot":0,"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'
 ))
 
 # ---------- LOGGING ----------
