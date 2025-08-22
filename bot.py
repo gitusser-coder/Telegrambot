@@ -12,7 +12,7 @@ from telegram.ext import (
 BOT_TOKEN = os.environ["TELEGRAM_TOKEN"]  # bei Render setzen
 TZ = ZoneInfo(os.environ.get("TZ", "Europe/Berlin"))
 
-# Gruppen per ENV: GROUPS_JSON='{"BigBangBets":-100111,"BigBangBets VIP":-100222,"BigBangBets Sportschat":-100333}'
+# Gruppen per ENV: GROUPS_JSON='{"BigBangBets":-100111,"BigBangBets VIP":-100222,"BigBangBets aSportschat":-100333}'
 import json
 GROUPS = json.loads(os.environ.get("GROUPS_JSON", '{"bot_testen": 4817569522,"Bigbangbot":4817569522}'))
 
