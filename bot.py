@@ -17,7 +17,7 @@ WEBHOOK_BASE = os.environ["WEBHOOK_BASE"]                    # z.B. https://dein
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "secret")  # beliebiger String
 TZ = ZoneInfo(os.environ.get("TZ", "Europe/Berlin"))
 
-# Gruppen: Namen -> Chat-IDs (negative ints). 0 = Platzhalter.
+# Dein GROUPS_JSON – Platzhalter 0 sind ok
 GROUPS = json.loads(os.environ.get(
     "GROUPS_JSON",
     '{"bot_testen":0,"Bigbangbot":0,"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'
@@ -78,8 +78,8 @@ async def cmd_start(update: Update, _):
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Variante A (Weiterleitung):
-    - Wenn im PN eine weitergeleitete Gruppen-Nachricht vorliegt, nimm deren Chat-ID.
-    - Sonst: aktuelle Chat-ID per PN schicken (Gruppe -> Gruppen-ID; PN -> User-ID).
+    - Wenn im PN eine weitergeleitete Gruppen-/Kanal-Nachricht vorliegt, nimm deren Chat-ID.
+    - Sonst: aktuelle Chat-ID per PN (Gruppe -> Gruppen-ID; PN -> User-ID).
     """
     chat = update.effective_chat
     user = update.effective_user
@@ -230,11 +230,13 @@ application.add_handler(ConversationHandler(
 # ---------- FLASK (Webhook-Endpunkte) ----------
 flask = Flask(__name__)
 
-@flask.get("/health")
-def health(): return "ok"
+@flask.get("/")
+def root():  # GET auf Root ist ok
+    return "ok"
 
 @flask.post(f"/webhook/{WEBHOOK_SECRET}")
 def webhook():
+    # Telegram sendet POST hierhin
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
         application.update_queue.put_nowait(update)
@@ -242,24 +244,22 @@ def webhook():
         log.exception(f"webhook error: {e}")
     return Response(status=200)
 
-def start_ptb():
-    # Eigene Event-Loop im Thread erzeugen, sonst "There is no current event loop"
+def run_ptb_loop():
+    """Eigener asyncio-Loop im Thread, damit JobQueue läuft und wir den Webhook im selben Loop setzen."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(application.initialize())
-    loop.run_until_complete(application.start())
-    loop.run_forever()
-
-if __name__ == "__main__":
-    # Telegram-App parallel zu Flask starten (eigener Loop, kein Polling!)
-    threading.Thread(target=start_ptb, name="start_ptb", daemon=True).start()
-
-    # Webhook setzen (idempotent, ohne 'requests')
-    async def set_webhook():
+    async def runner():
+        await application.initialize()
+        await application.start()
+        # Webhook hier setzen → gleicher Loop, keine 'different event loop'-Fehler
         await application.bot.set_webhook(f"{WEBHOOK_BASE}/webhook/{WEBHOOK_SECRET}")
         info = await application.bot.get_webhook_info()
         log.info("Webhook gesetzt: %s", info.url)
+    loop.run_until_complete(runner())
+    loop.run_forever()
 
-    asyncio.run(set_webhook())
-
+if __name__ == "__main__":
+    # PTB-Loop im Hintergrund starten (kein Polling!)
+    threading.Thread(target=run_ptb_loop, name="ptb", daemon=True).start()
+    # Flask (WSGI) starten
     flask.run(host="0.0.0.0", port=int(os.environ.get("PORT", "10000")))
