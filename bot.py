@@ -236,7 +236,7 @@ def root():  # GET auf Root ist ok
 
 @flask.post(f"/webhook/{WEBHOOK_SECRET}")
 def webhook():
-    # Telegram sendet POST hierhin
+    log.info("Webhook hit")  # <-- MUSS im Render-Log erscheinen, wenn du /start sendest
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
         application.update_queue.put_nowait(update)
