@@ -1,7 +1,7 @@
 import os, json, re, logging, threading, asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from flask import Flask, Response, request
+from flask import Flask, request, Response
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatType
@@ -11,24 +11,23 @@ from telegram.ext import (
     CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 )
 
-# --------- ENV ----------
-TOKEN = os.environ["TELEGRAM_TOKEN"]
-WEBHOOK_BASE = os.environ["WEBHOOK_BASE"]  # z. B. https://deinservice.onrender.com
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "secret")
+# ---------- ENV ----------
+TOKEN = os.environ["TELEGRAM_TOKEN"]                         # BotFather-Token
+WEBHOOK_BASE = os.environ["WEBHOOK_BASE"]                    # z.B. https://deinservice.onrender.com
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "secret")  # beliebiger String
 TZ = ZoneInfo(os.environ.get("TZ", "Europe/Berlin"))
 
-# Gruppen als JSON in der ENV (Namen -> Chat-IDs). 0 als Platzhalter ist ok.
-# Beispiel: {"BigBangBets":-100111,"BigBangBets VIP":-100222,"BigBangBets Sportschat":-100333}
+# Gruppen: Namen -> Chat-IDs (negative ints). 0 = Platzhalter.
 GROUPS = json.loads(os.environ.get(
     "GROUPS_JSON",
-    '{"bot_testen":0,"Bigbangbot":0,"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'
+    '{"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'
 ))
 
-# --------- LOGGING ----------
+# ---------- LOGGING ----------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("webhook-bot")
 
-# --------- TELEGRAM APP ----------
+# ---------- TELEGRAM APP ----------
 application: Application = ApplicationBuilder().token(TOKEN).build()
 
 ASK_TEXT, ASK_GROUPS, ASK_TIME = range(3)
@@ -41,7 +40,7 @@ def next_run_local(hh:int, mm:int) -> datetime:
         run_dt += timedelta(days=1)
     return run_dt
 
-def kb(selected:set[str]) -> InlineKeyboardMarkup:
+def group_keyboard(selected:set[str]) -> InlineKeyboardMarkup:
     rows=[]
     for name in GROUPS.keys():
         tick = "✅ " if name in selected else ""
@@ -64,24 +63,23 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True,
             )
         except Exception as e:
-            log.error(f"senden an {cid} fehlgeschlagen: {e}")
+            log.error(f"Senden an {cid} fehlgeschlagen: {e}")
 
-# --------- COMMANDS ----------
+# ---------- COMMANDS ----------
 async def cmd_start(update: Update, _):
     await update.message.reply_text(
         "Befehle:\n"
         "/plan – Text → Gruppe(n) → Zeit HH:MM (einmalig)\n"
         "/id – Chat‑ID per PN (unterstützt Weiterleitungen)\n"
-        "/now – Sofort‑Broadcast\n"
+        "/now – Sofort‑Broadcast an alle Gruppen in GROUPS_JSON\n"
         "/cancel – Dialog abbrechen"
     )
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Variante A:
+    Variante A (Weiterleitung):
     - Wenn im PN eine weitergeleitete Gruppen-Nachricht vorliegt, nimm deren Chat-ID.
-    - Sonst: Chat-ID des aktuellen Chats per PN schicken.
-    - In Gruppen gibt's nur eine kurze Bestätigung.
+    - Sonst: aktuelle Chat-ID per PN schicken (Gruppe -> Gruppen-ID; PN -> User-ID).
     """
     chat = update.effective_chat
     user = update.effective_user
@@ -92,7 +90,6 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.bot_data["bot_username"] = me.username or ""
 
     try:
-        # A) Weiterleitung im PN auswerten
         fwd = getattr(msg, "forward_from_chat", None)
         if fwd:
             info = f"🔐 Chat-ID (aus Weiterleitung)\nName/Typ: {fwd.title or fwd.type}\nID: {fwd.id}"
@@ -103,7 +100,6 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.reply_text("✅ Gruppen‑ID (aus Weiterleitung) per PN geschickt.")
             return
 
-        # B) sonst: normale Chat-ID (Gruppe → Gruppen-ID, PN → User-ID)
         info = f"🔐 Chat-ID\nName/Typ: {chat.title or chat.type}\nID: {chat.id}"
         await context.bot.send_message(chat_id=user.id, text=info)
         if chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -125,7 +121,7 @@ async def cmd_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=cid, text="Test: Sofort-Broadcast ✅", disable_web_page_preview=True)
     await update.message.reply_text("Sofort‑Broadcast ausgelöst.")
 
-# --------- /plan CONVERSATION ----------
+# ---------- /plan Conversation ----------
 async def plan_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("Schick den **Nachrichtentext**.", parse_mode=ParseMode.MARKDOWN)
@@ -140,7 +136,7 @@ async def plan_got_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["selected_groups"] = set()
     await update.message.reply_text(
         "Wähle Gruppe(n) und tippe danach **✅ Fertig**.",
-        reply_markup=kb(context.user_data["selected_groups"])
+        reply_markup=group_keyboard(context.user_data["selected_groups"])
     )
     return ASK_GROUPS
 
@@ -153,12 +149,9 @@ async def plan_groups_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("toggle::"):
         name = data.split("::", 1)[1]
         if name in GROUPS:
-            if name in sel:
-                sel.remove(name)
-            else:
-                sel.add(name)
+            (sel.remove(name) if name in sel else sel.add(name))
             context.user_data["selected_groups"] = sel
-        await q.edit_message_reply_markup(reply_markup=kb(sel))
+        await q.edit_message_reply_markup(reply_markup=group_keyboard(sel))
         return ASK_GROUPS
 
     if data == "cancel":
@@ -234,7 +227,7 @@ application.add_handler(ConversationHandler(
     conversation_timeout=300,
 ))
 
-# --------- FLASK (Webhook-Endpunkte) ----------
+# ---------- FLASK (Webhook-Endpunkte) ----------
 flask = Flask(__name__)
 
 @flask.get("/health")
@@ -250,25 +243,23 @@ def webhook():
     return Response(status=200)
 
 def start_ptb():
-    asyncio.run(application.initialize())
-    asyncio.run(application.start())
-    asyncio.get_event_loop().run_forever()
+    # Eigene Event-Loop im Thread erzeugen, sonst "There is no current event loop"
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(application.initialize())
+    loop.run_until_complete(application.start())
+    loop.run_forever()
 
 if __name__ == "__main__":
-    # Telegram-App parallel zu Flask starten
-    threading.Thread(target=start_ptb, daemon=True).start()
+    # Telegram-App parallel zu Flask starten (eigener Loop, kein Polling!)
+    threading.Thread(target=start_ptb, name="start_ptb", daemon=True).start()
 
-    # Webhook setzen (idempotent)
-    try:
-        import requests
-        url = f"{WEBHOOK_BASE}/webhook/{WEBHOOK_SECRET}"
-        requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/setWebhook",
-            params={"url": url},
-            timeout=10,
-        )
-        log.info("setWebhook -> %s", url)
-    except Exception as e:
-        log.warning("setWebhook fehlgeschlagen: %s", e)
+    # Webhook setzen (idempotent, ohne 'requests')
+    async def set_webhook():
+        await application.bot.set_webhook(f"{WEBHOOK_BASE}/webhook/{WEBHOOK_SECRET}")
+        info = await application.bot.get_webhook_info()
+        log.info("Webhook gesetzt: %s", info.url)
+
+    asyncio.run(set_webhook())
 
     flask.run(host="0.0.0.0", port=int(os.environ.get("PORT", "10000")))
