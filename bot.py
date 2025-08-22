@@ -1,7 +1,7 @@
 import os, json, re, logging, threading, asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from flask import Flask, Response, request
+from Flask import flask, Response, request
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatType
