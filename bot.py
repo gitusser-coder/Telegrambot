@@ -14,7 +14,7 @@ TZ = ZoneInfo(os.environ.get("TZ", "Europe/Berlin"))
 
 # Gruppen per ENV: GROUPS_JSON='{"BigBangBets":-100111,"BigBangBets VIP":-100222,"BigBangBets Sportschat":-100333}'
 import json
-GROUPS = json.loads(os.environ.get("GROUPS_JSON", '{"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'))
+GROUPS = json.loads(os.environ.get("GROUPS_JSON", '{"bot_testen": 4817569522,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'))
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
 log = logging.getLogger("bot")
