@@ -2,7 +2,7 @@ import os, json, re, logging, threading, asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from flask import Flask, request, Response
-
+from functools import wraps
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatType
 from telegram.error import Forbidden
@@ -11,6 +11,22 @@ from telegram.ext import (
     CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 )
 
+
+# Nur diese User dürfen steuern (DEINE IDs hier eintragen!)
+ALLOWED_USERS = {6911213901}  # <- ersetze/ergänze
+
+def admin_only(func):
+    @wraps(func)
+    async def wrapper(update, context, *args, **kwargs):
+        user = update.effective_user
+        uid = user.id if user else None
+        if uid not in ALLOWED_USERS:
+            # In Gruppen still schweigen, im PN optional kurz meckern
+            if update.effective_chat and update.effective_chat.type == "private" and getattr(update, "message", None):
+                await update.message.reply_text("⛔ Keine Berechtigung.")
+            return
+        return await func(update, context, *args, **kwargs)
+    return wrapper
 # ---------- ENV ----------
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 WEBHOOK_BASE = os.environ["WEBHOOK_BASE"]                     # z.B. https://deinservice.onrender.com
@@ -73,7 +89,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/now – Sofort‑Broadcast an alle Gruppen in GROUPS_JSON\n"
         "/cancel – Dialog abbrechen"
     )
-
+@admin_only
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -107,7 +123,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Ich darf dir noch keine PN schicken. Öffne den Bot und sende /start: {link}"
         )
-
+@admin_only
 async def cmd_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ids = [cid for cid in GROUPS.values() if isinstance(cid, int) and cid != 0]
     if not ids:
@@ -118,6 +134,7 @@ async def cmd_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Sofort‑Broadcast ausgelöst.")
 
 # ---------- /plan Conversation ----------
+@admin_only
 async def plan_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("Schick den **Nachrichtentext**.", parse_mode=ParseMode.MARKDOWN)
