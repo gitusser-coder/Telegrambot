@@ -80,6 +80,7 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Senden an {cid} fehlgeschlagen: {e}")
 
 # ---------- COMMANDS ----------
+@admin_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.info("/start from chat %s", update.effective_chat.id)
     await update.message.reply_text(
