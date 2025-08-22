@@ -12,12 +12,10 @@ from telegram.ext import (
 )
 
 # ---------- ENV ----------
-TOKEN = os.environ["TELEGRAM_TOKEN"]                         # BotFather-Token
-WEBHOOK_BASE = os.environ["WEBHOOK_BASE"]                    # z.B. https://deinservice.onrender.com
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "secret")  # beliebiger String
+TOKEN = os.environ["TELEGRAM_TOKEN"]
+WEBHOOK_BASE = os.environ["WEBHOOK_BASE"]                     # z.B. https://deinservice.onrender.com
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "secret")   # exakt wie in Webhook-URL
 TZ = ZoneInfo(os.environ.get("TZ", "Europe/Berlin"))
-
-# Dein GROUPS_JSON – Platzhalter 0 sind ok
 GROUPS = json.loads(os.environ.get(
     "GROUPS_JSON",
     '{"bot_testen":0,"Bigbangbot":0,"BigBangBets":0,"BigBangBets VIP":0,"BigBangBets Sportschat":0}'
@@ -29,6 +27,7 @@ log = logging.getLogger("webhook-bot")
 
 # ---------- TELEGRAM APP ----------
 application: Application = ApplicationBuilder().token(TOKEN).build()
+app_loop = None  # wird nach Start gesetzt
 
 ASK_TEXT, ASK_GROUPS, ASK_TIME = range(3)
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -36,8 +35,7 @@ TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 def next_run_local(hh:int, mm:int) -> datetime:
     now = datetime.now(TZ)
     run_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if run_dt <= now:
-        run_dt += timedelta(days=1)
+    if run_dt <= now: run_dt += timedelta(days=1)
     return run_dt
 
 def group_keyboard(selected:set[str]) -> InlineKeyboardMarkup:
@@ -66,7 +64,8 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Senden an {cid} fehlgeschlagen: {e}")
 
 # ---------- COMMANDS ----------
-async def cmd_start(update: Update, _):
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log.info("/start from chat %s", update.effective_chat.id)
     await update.message.reply_text(
         "Befehle:\n"
         "/plan – Text → Gruppe(n) → Zeit HH:MM (einmalig)\n"
@@ -76,11 +75,6 @@ async def cmd_start(update: Update, _):
     )
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Variante A (Weiterleitung):
-    - Wenn im PN eine weitergeleitete Gruppen-/Kanal-Nachricht vorliegt, nimm deren Chat-ID.
-    - Sonst: aktuelle Chat-ID per PN (Gruppe -> Gruppen-ID; PN -> User-ID).
-    """
     chat = update.effective_chat
     user = update.effective_user
     msg = update.message
@@ -90,6 +84,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.bot_data["bot_username"] = me.username or ""
 
     try:
+        # Weiterleitung aus Gruppe/Kanal?
         fwd = getattr(msg, "forward_from_chat", None)
         if fwd:
             info = f"🔐 Chat-ID (aus Weiterleitung)\nName/Typ: {fwd.title or fwd.type}\nID: {fwd.id}"
@@ -100,6 +95,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.reply_text("✅ Gruppen‑ID (aus Weiterleitung) per PN geschickt.")
             return
 
+        # sonst: aktueller Chat
         info = f"🔐 Chat-ID\nName/Typ: {chat.title or chat.type}\nID: {chat.id}"
         await context.bot.send_message(chat_id=user.id, text=info)
         if chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -227,31 +223,33 @@ application.add_handler(ConversationHandler(
     conversation_timeout=300,
 ))
 
-# ---------- FLASK (Webhook-Endpunkte) ----------
+# ---------- FLASK ----------
 flask = Flask(__name__)
 
 @flask.get("/")
-def root():  # GET auf Root ist ok
-    return "ok"
+def root(): return "ok"
 
 @flask.post(f"/webhook/{WEBHOOK_SECRET}")
 def webhook():
-    log.info("Webhook hit")  # <-- MUSS im Render-Log erscheinen, wenn du /start sendest
+    log.info("Webhook hit")
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
-        application.update_queue.put_nowait(update)
+        # Update im PTB-Loop verarbeiten
+        fut = asyncio.run_coroutine_threadsafe(application.process_update(update), app_loop)
+        fut.result(timeout=5)  # Exceptions sofort sichtbar machen
     except Exception as e:
         log.exception(f"webhook error: {e}")
+        return Response(status=500)
     return Response(status=200)
 
 def run_ptb_loop():
-    """Eigener asyncio-Loop im Thread, damit JobQueue läuft und wir den Webhook im selben Loop setzen."""
+    global app_loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    app_loop = loop
     async def runner():
         await application.initialize()
         await application.start()
-        # Webhook hier setzen → gleicher Loop, keine 'different event loop'-Fehler
         await application.bot.set_webhook(f"{WEBHOOK_BASE}/webhook/{WEBHOOK_SECRET}")
         info = await application.bot.get_webhook_info()
         log.info("Webhook gesetzt: %s", info.url)
@@ -259,7 +257,5 @@ def run_ptb_loop():
     loop.run_forever()
 
 if __name__ == "__main__":
-    # PTB-Loop im Hintergrund starten (kein Polling!)
     threading.Thread(target=run_ptb_loop, name="ptb", daemon=True).start()
-    # Flask (WSGI) starten
     flask.run(host="0.0.0.0", port=int(os.environ.get("PORT", "10000")))
