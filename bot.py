@@ -3,17 +3,18 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from flask import Flask, request, Response
 from functools import wraps
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ParseMode, ChatType
 from telegram.error import Forbidden
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ConversationHandler, ContextTypes, filters
+    CallbackQueryHandler, ConversationHandler, ContextTypes, filters, ChatMemberHandler
 )
 
 
 # Nur diese User dürfen steuern (DEINE IDs hier eintragen!)
 ALLOWED_USERS = {6911213901, 1007669571}  # <- ersetze/ergänze
+
 
 def admin_only(func):
     @wraps(func)
@@ -80,6 +81,7 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Senden an {cid} fehlgeschlagen: {e}")
 
 # ---------- COMMANDS ----------
+
 @admin_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.info("/start from chat %s", update.effective_chat.id)
@@ -248,7 +250,24 @@ async def cmd_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Konnte {raw} nicht auflösen: {e}")
 
+MAIN_ADMIN_ID = next(iter(ALLOWED_USERS))  # einer deiner Admins
 
+async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cm = update.my_chat_member
+    if not cm or not cm.new_chat_member:
+        return
+    me = await context.bot.get_me()
+    if cm.new_chat_member.user.id == me.id:
+        chat = cm.chat
+        try:
+            await context.bot.send_message(
+                chat_id=MAIN_ADMIN_ID,
+                text=f"🔔 Bot im Chat geändert:\nTitel: {chat.title}\nTyp: {chat.type}\nID: {chat.id}"
+            )
+        except Exception:
+            pass
+
+application.add_handler(ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 # Handler registrieren
 application.add_handler(CommandHandler("resolve", cmd_resolve))
 application.add_handler(CommandHandler("start", cmd_start))
