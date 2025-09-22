@@ -225,7 +225,32 @@ async def plan_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Abgebrochen.")
     return ConversationHandler.END
 
+@admin_only
+async def cmd_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Nutzung: /resolve @Name   oder   /resolve https://t.me/Name
+    if not context.args:
+        await update.message.reply_text("Nutze: /resolve @ChannelName")
+        return
+
+    raw = context.args[0].strip()
+
+    # URL -> @name ziehen
+    if raw.startswith("https://t.me/"):
+        raw = raw[len("https://t.me/"):]
+    if not raw.startswith("@"):
+        raw = "@" + raw
+
+    try:
+        chat = await context.bot.get_chat(raw)
+        await update.message.reply_text(
+            f"🔐 Chat gefunden:\nTitel: {chat.title}\nTyp: {chat.type}\nID: {chat.id}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Konnte {raw} nicht auflösen: {e}")
+
+
 # Handler registrieren
+application.add_handler(CommandHandler("resolve", cmd_resolve))
 application.add_handler(CommandHandler("start", cmd_start))
 application.add_handler(CommandHandler("id", cmd_id))
 application.add_handler(CommandHandler("now", cmd_now))
