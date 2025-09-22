@@ -80,7 +80,7 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Senden an {cid} fehlgeschlagen: {e}")
 
 # ---------- COMMANDS ----------
-@admin_only
+#@admin_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.info("/start from chat %s", update.effective_chat.id)
     await update.message.reply_text(
@@ -90,7 +90,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/now – Sofort‑Broadcast an alle Gruppen in GROUPS_JSON\n"
         "/cancel – Dialog abbrechen"
     )
-@admin_only
+#@admin_only
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -124,7 +124,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Ich darf dir noch keine PN schicken. Öffne den Bot und sende /start: {link}"
         )
-@admin_only
+#@admin_only
 async def cmd_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ids = [cid for cid in GROUPS.values() if isinstance(cid, int) and cid != 0]
     if not ids:
@@ -135,7 +135,7 @@ async def cmd_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Sofort‑Broadcast ausgelöst.")
 
 # ---------- /plan Conversation ----------
-@admin_only
+#@admin_only
 async def plan_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("Schick den **Nachrichtentext**.", parse_mode=ParseMode.MARKDOWN)
