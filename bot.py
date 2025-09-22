@@ -250,23 +250,30 @@ async def cmd_resolve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Konnte {raw} nicht auflösen: {e}")
 
-MAIN_ADMIN_ID = next(iter(ALLOWED_USERS))  # einer deiner Admins
+MAIN_ADMIN_IDS = {6911213901}  # einer deiner Admins
 
 async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cm = update.my_chat_member
     if not cm or not cm.new_chat_member:
         return
-    me = await context.bot.get_me()
-    if cm.new_chat_member.user.id == me.id:
-        chat = cm.chat
-        try:
-            await context.bot.send_message(
-                chat_id=MAIN_ADMIN_ID,
-                text=f"🔔 Bot im Chat geändert:\nTitel: {chat.title}\nTyp: {chat.type}\nID: {chat.id}"
-            )
-        except Exception:
-            pass
 
+    # ist es unser Bot, dessen Status sich geändert hat?
+    me = await context.bot.get_me()
+    if cm.new_chat_member.user.id != me.id:
+        return
+
+    chat = cm.chat  # hier steckt die ID drin
+    text = f"🔔 Bot-Status geändert\nTitel: {chat.title}\nTyp: {chat.type}\nID: {chat.id}"
+    for admin_id in MAIN_ADMIN_IDS:
+        try:
+            await context.bot.send_message(admin_id, text)
+        except Forbidden:
+            # Du hast dem Bot evtl. noch nie /start geschickt
+            pass
+        except Exception as e:
+            logging.exception("PM an Admin fehlgeschlagen: %s", e)
+
+# Registrieren (einmal, neben deinen anderen add_handler-Aufrufen)
 application.add_handler(ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 # Handler registrieren
 application.add_handler(CommandHandler("resolve", cmd_resolve))
